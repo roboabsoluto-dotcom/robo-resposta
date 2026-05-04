@@ -1,7 +1,5 @@
 require("dotenv").config();
 
-const { google } = require("googleapis");
-
 // 🔐 PROTEÇÃO GLOBAL
 let credentials=null;
 
