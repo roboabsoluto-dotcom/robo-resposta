@@ -12,12 +12,13 @@ try {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion,
+  fetchLatestBaileysVersion
 } = require("@whiskeysockets/baileys");
 
 const { Boom } = require("@hapi/boom");
 const pino = require("pino");
 const fs = require("fs");
+
 const express = require("express");
 const QRCode = require("qrcode");
 const { google } = require("googleapis");
@@ -27,6 +28,8 @@ const app = express();
 let sock = null;
 let qrAtual = null;
 let alunos = [];
+const lidMap = {}; // 👈 adicionar esta linha
+
 
 // ───────────── GOOGLE SHEETS ─────────────
 async function carregarAlunos() {
@@ -119,10 +122,10 @@ console.log("📊 Telefones na planilha:", alunos.map(a => a.telefone));
   }
 
   // SEGUNDA VEZ PRA FRENTE
-  await sock.sendMessage(jid, {
-    text:
-      `👨‍💼 Entre em contato com seu consultor:\n\n📱 ${aluno.consultorNumero}`,
-  });
+ await sock.sendMessage(jid, {
+  text:
+    `👨‍💼 Entre em contato com seu consultor:\n\n👤 ${aluno.consultorNome}\n📱 ${aluno.consultorNumero}`,
+});
 }
 
 // ───────────── WHATSAPP ─────────────
@@ -137,7 +140,20 @@ async function conectar() {
     printQRInTerminal: false,
   });
 
+  
+
   sock.ev.on("creds.update", saveCreds);
+
+  // Mapeia @lid para número real conforme contatos chegam
+sock.ev.on("contacts.upsert", (contacts) => {
+  for (const contact of contacts) {
+    if (contact.id && contact.lid) {
+      lidMap[contact.lid] = contact.id;
+      console.log("🗺️ Mapeado:", contact.lid, "→", contact.id);
+    }
+  }
+  console.log("📇 Total mapeados no lidMap:", Object.keys(lidMap).length);
+});
 
   sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
@@ -165,20 +181,25 @@ sock.ev.on("messages.upsert", async ({ messages }) => {
     if (!msg.message) continue;
     if (msg.key.fromMe) continue;
 
-    const jid = msg.key.remoteJid;
-    if (!jid || jid.includes("@g.us")) continue;
-
-    const numero = jid.split("@")[0].replace(/\D/g, "");
-
-    // 🚫 FILTRO AQUI (EXATO LUGAR)
-    if (numero.length < 12 || numero.length > 13) {
-      console.log("🚫 Ignorado (ID inválido):", numero);
+    // 👇 pega o número real direto do senderPn
+    const senderPn = msg.key.senderPn;
+    if (!senderPn) {
+      console.log("🚫 Sem senderPn:", msg.key.remoteJid);
       continue;
     }
 
-    console.log("📩 Mensagem de:", numero);
+    const numero = senderPn.split("@")[0];
 
-    await responderAluno(jid, numero);
+    const texto =
+      msg.message.conversation ||
+      msg.message.extendedTextMessage?.text;
+
+    if (!texto) continue;
+
+    console.log("📩 Número REAL:", numero);
+    console.log("💬 Texto:", texto);
+
+    await responderAluno(msg.key.remoteJid, numero);
   }
 });
 }
@@ -194,9 +215,31 @@ app.get("/qr", async (req, res) => {
 });
 
 app.get("/logout", async (req, res) => {
-  await sock.logout();
-  fs.rmSync("./auth-resposta", { recursive: true, force: true });
-  res.send("Desconectado!");
+  try {
+    if (!sock) {
+      return res.status(200).send("❌ Socket não iniciado");
+    }
+
+    try {
+      await sock.logout();
+    } catch (e) {
+      console.log("⚠️ Logout falhou, continuando...");
+    }
+
+    const fs = require("fs");
+    fs.rmSync("./auth-resposta", { recursive: true, force: true });
+
+    sock = null;
+
+    // 👇 ADICIONE ISSO AQUI (ESSENCIAL)
+    setTimeout(() => conectar(), 1000);
+
+    res.status(200).send("✅ Sessão limpa, novo QR será gerado");
+  } catch (err) {
+    console.log("❌ ERRO GERAL:", err);
+
+    res.status(200).send("⚠️ Erro tratado, sessão resetada");
+  }
 });
 
 // ───────────── START ─────────────
