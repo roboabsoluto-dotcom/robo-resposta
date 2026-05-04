@@ -3,7 +3,7 @@ require("dotenv").config();
 const { google } = require("googleapis");
 
 // 🔐 PROTEÇÃO GLOBAL
-let credentials;
+let credentials=null;
 
 try {
   credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
@@ -33,8 +33,13 @@ let alunos = [];
 // ───────────── GOOGLE SHEETS ─────────────
 async function carregarAlunos() {
   try {
+    if (!credentials) {
+      console.log("⛔ Sem credenciais, pulando carga de alunos");
+      return;
+    }
+
     const auth = new google.auth.GoogleAuth({
-      credentials: JSON.parse(process.env.GOOGLE_CREDENTIALS),
+      credentials: credentials,
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
 
@@ -56,29 +61,35 @@ async function carregarAlunos() {
 
     console.log("✅ Alunos carregados:", alunos.length);
   } catch (e) {
-    console.error("Erro ao carregar alunos:", e.message);
+    console.log("❌ ERRO AO CARREGAR ALUNOS:", e.message);
   }
 }
 
 // ───────────── ATUALIZAR PLANILHA ─────────────
 async function marcarComoRespondido(linha) {
-  const auth = new google.auth.GoogleAuth({
-    keyFile: "credentials.json",
-    scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-  });
+  try {
+    if (!credentials) return;
 
-  const sheets = google.sheets({ version: "v4", auth });
+    const auth = new google.auth.GoogleAuth({
+      credentials: credentials,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
 
-  await sheets.spreadsheets.values.update({
-    spreadsheetId: process.env.SPREADSHEET_ID,
-    range: `resposta automatica!E${linha}`,
-    valueInputOption: "RAW",
-    requestBody: {
-      values: [["SIM"]],
-    },
-  });
+    const sheets = google.sheets({ version: "v4", auth });
 
-  console.log("✅ Atualizado para SIM linha", linha);
+    await sheets.spreadsheets.values.update({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: `resposta automatica!E${linha}`, // ⚠️ corrigido
+      valueInputOption: "RAW",
+      requestBody: {
+        values: [["SIM"]],
+      },
+    });
+
+    console.log("✅ Atualizado linha", linha);
+  } catch (e) {
+    console.log("❌ ERRO AO ATUALIZAR:", e.message);
+  }
 }
 
 // ───────────── RESPOSTA ─────────────
@@ -195,7 +206,10 @@ const PORT = process.env.PORT || 3000;
 app.listen(PORT, () => console.log("Rodando na porta", PORT));
 
 conectar();
-carregarAlunos();
+
+setTimeout(() => {
+  carregarAlunos();
+}, 5000);
 
 // Atualiza a planilha a cada 5 minutos
 setInterval(carregarAlunos, 5 * 60 * 1000);
