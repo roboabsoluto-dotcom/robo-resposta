@@ -1,20 +1,20 @@
 {
-  "name": "robo-resposta",
+  "name": "bot-whatsapp",
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
     "start": "node index.js"
   },
-  "engines": {
-  "node": ">=20"
-},
   "dependencies": {
     "@hapi/boom": "^10.0.1",
-    "@whiskeysockets/baileys": "^6.7.8",
-    "dotenv": "^17.4.2",
-    "express": "^5.2.1",
-    "googleapis": "^171.4.0",
-    "pino": "^10.3.1",
-    "qrcode": "^1.5.4"
+    "@whiskeysockets/baileys": "latest",
+    "dotenv": "latest",
+    "express": "latest",
+    "googleapis": "latest",
+    "pino": "latest",
+    "qrcode": "^1.5.3"
+  },
+  "engines": {
+    "node": ">=20.0.0"
   }
 }
