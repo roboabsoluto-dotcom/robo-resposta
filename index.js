@@ -105,46 +105,49 @@ async function monitorarConsultores() {
 
     const dados = res.data.values || [];
 
-    for (let index = 0; index < dados.length; index++) {
-      const row = dados[index];
-      const linha = index + 2;
+   for (let index = 0; index < dados.length; index++) {
+  const row = dados[index];
+  const linha = index + 2;
 
-      // Coluna AI (índice 34) deve ter "Novo"
-      const status = (row[34] || "").toString().trim().toLowerCase();
-      if (status !== "novo") continue;
+  // Coluna AI (índice 34)
+  const status = (row[34] || "").toString().trim().toLowerCase();
+  if (status !== "novo") continue;
 
-      const nomeAluno = row[2];
-      const telefoneAluno = row[5]?.replace(/\D/g, "");
-      const cursoAluno = row[13];
-      const nomeConsultor = row[21];
-      const whatsappConsultor = row[22]?.replace(/\D/g, "");
+  const nomeAluno = row[2] || "";
+  const telefoneAluno = (row[5] || "").replace(/\D/g, "");
+  const cursoAluno = row[13] || "";
+  const nomeConsultor = row[21] || "";
+  const whatsappConsultor = (row[22] || "").replace(/\D/g, "");
 
-      if (!whatsappConsultor || !nomeConsultor) continue;
+  // ✅ Valida todos os campos obrigatórios antes de enviar
+  if (!whatsappConsultor || !nomeConsultor || !nomeAluno) {
+    console.log(`⚠️ Linha ${linha} com dados incompletos, pulando`);
+    continue;
+  }
 
-      const jid = whatsappConsultor + "@s.whatsapp.net";
+  const jid = whatsappConsultor + "@s.whatsapp.net";
 
-      await sock.sendMessage(jid, {
-        text:
-          `🎉 Olá, *${nomeConsultor}*!\n\n` +
-          `Um novo aluno acabou de se inscrever.\n\n` +
-          `👤 *Nome:* ${nomeAluno}\n` +
-          `📞 *Telefone:* ${telefoneAluno}\n` +
-          `📚 *Curso:* ${cursoAluno}\n\n` +
-          `✅ Verifique os detalhes no sistema e realize o contato o quanto antes.\n\n` +
-          `💪 Um atendimento rápido aumenta as chances de conversão.\n\n` +
-          `🚀 Excelente atendimento e boas matrículas!`,
-      });
+  await sock.sendMessage(jid, {
+    text:
+      `🎉 Olá, *${nomeConsultor}*!\n\n` +
+      `Um novo aluno acabou de se inscrever.\n\n` +
+      `👤 *Nome:* ${nomeAluno}\n` +
+      `📞 *Telefone:* ${telefoneAluno}\n` +
+      `📚 *Curso:* ${cursoAluno}\n\n` +
+      `✅ Verifique os detalhes no sistema e realize o contato o quanto antes.\n\n` +
+      `💪 Um atendimento rápido aumenta as chances de conversão.\n\n` +
+      `🚀 Excelente atendimento e boas matrículas!`,
+  });
 
-      console.log(`✅ Mensagem enviada para: ${nomeConsultor} (linha ${linha})`);
+  console.log(`✅ Mensagem enviada para: ${nomeConsultor} (linha ${linha})`);
 
-      // Marca como ENVIADO na coluna AI para não reprocessar
-      await sheets.spreadsheets.values.update({
-        spreadsheetId: process.env.SPREADSHEET_ID,
-        range: `Requerimentos_Matricula!AI${linha}`,
-        valueInputOption: "RAW",
-        requestBody: { values: [["ENVIADO"]] },
-      });
-    }
+  await sheets.spreadsheets.values.update({
+    spreadsheetId: process.env.SPREADSHEET_ID,
+    range: `Requerimentos_Matricula!AI${linha}`,
+    valueInputOption: "RAW",
+    requestBody: { values: [["ENVIADO"]] },
+  });
+}
 
   } catch (e) {
     console.log("❌ ERRO MONITORAMENTO:", e.message);
