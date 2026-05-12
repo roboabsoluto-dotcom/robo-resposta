@@ -1,24 +1,24 @@
 require("dotenv").config();
 
 // 🔐 PROTEÇÃO GLOBAL
-let credentials=null;
-
+let credentials = null;
 try {
   credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
   console.log("✅ GOOGLE_CREDENTIALS carregado");
 } catch (e) {
   console.log("❌ ERRO ao ler GOOGLE_CREDENTIALS");
-}const {
+}
+
+const {
   default: makeWASocket,
   useMultiFileAuthState,
   DisconnectReason,
-  fetchLatestBaileysVersion
+  fetchLatestBaileysVersion,
 } = require("@whiskeysockets/baileys");
 
 const { Boom } = require("@hapi/boom");
 const pino = require("pino");
 const fs = require("fs");
-
 const express = require("express");
 const QRCode = require("qrcode");
 const { google } = require("googleapis");
@@ -30,8 +30,7 @@ let qrAtual = null;
 let alunos = [];
 let linhasConsultores = new Set();
 let primeiraLeituraConsultores = true;
-const lidMap = {}; // 👈 adicionar esta linha
-
+const lidMap = {};
 
 // ───────────── GOOGLE SHEETS ─────────────
 async function carregarAlunos() {
@@ -42,7 +41,7 @@ async function carregarAlunos() {
     }
 
     const auth = new google.auth.GoogleAuth({
-      credentials: credentials,
+      credentials,
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
 
@@ -74,7 +73,7 @@ async function marcarComoRespondido(linha) {
     if (!credentials) return;
 
     const auth = new google.auth.GoogleAuth({
-      credentials: credentials,
+      credentials,
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
 
@@ -82,11 +81,9 @@ async function marcarComoRespondido(linha) {
 
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: `resposta automatica!E${linha}`, // ⚠️ corrigido
+      range: `resposta automatica!E${linha}`,
       valueInputOption: "RAW",
-      requestBody: {
-        values: [["SIM"]],
-      },
+      requestBody: { values: [["SIM"]] },
     });
 
     console.log("✅ Atualizado linha", linha);
@@ -95,11 +92,78 @@ async function marcarComoRespondido(linha) {
   }
 }
 
-// ───────────── RESPOSTA ─────────────
+// ───────────── MONITORAR CONSULTORES ─────────────
+// ✅ CORRIGIDO: movida para o escopo global (estava dentro de responderAluno)
+async function monitorarConsultores() {
+  try {
+    if (!credentials) return;
+    if (!sock) {
+      console.log("⚠️ Socket ainda não pronto, pulando monitoramento");
+      return;
+    }
+
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
+
+    const sheets = google.sheets({ version: "v4", auth });
+
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: "Requerimentos_Matricula!A2:W",
+    });
+
+    const dados = res.data.values || [];
+
+    for (let index = 0; index < dados.length; index++) {
+      const linha = index + 2;
+
+      if (linhasConsultores.has(linha)) continue;
+      linhasConsultores.add(linha);
+
+      if (primeiraLeituraConsultores) continue;
+
+      const row = dados[index];
+
+      const nomeAluno = row[2];
+      const telefoneAluno = row[5]?.replace(/\D/g, "");
+      const cursoAluno = row[13];
+      const nomeConsultor = row[21];
+      const whatsappConsultor = row[22]?.replace(/\D/g, "");
+
+      if (!whatsappConsultor) continue;
+
+      const jid = whatsappConsultor + "@s.whatsapp.net";
+
+      await sock.sendMessage(jid, {
+        text:
+          `🎉 Olá, *${nomeConsultor}*!\n\n` +
+          `Um novo aluno acabou de se inscrever.\n\n` +
+          `👤 *Nome:* ${nomeAluno}\n` +
+          `📞 *Telefone:* ${telefoneAluno}\n` +
+          `📚 *Curso:* ${cursoAluno}\n\n` +
+          `✅ Verifique os detalhes no sistema e realize o contato o quanto antes.\n\n` +
+          `💪 Um atendimento rápido aumenta as chances de conversão.\n\n` +
+          `🚀 Excelente atendimento e boas matrículas!`,
+      });
+
+      console.log("✅ Mensagem enviada para:", nomeConsultor);
+    }
+
+    primeiraLeituraConsultores = false;
+  } catch (e) {
+    console.log("❌ ERRO MONITORAMENTO:", e.message);
+  }
+}
+
+// ───────────── RESPOSTA AO ALUNO ─────────────
 async function responderAluno(jid, numero) {
   const aluno = alunos.find((a) => a.telefone === numero);
-console.log("🔎 Numero recebido:", numero);
-console.log("📊 Telefones na planilha:", alunos.map(a => a.telefone));
+
+  console.log("🔎 Numero recebido:", numero);
+  console.log("📊 Telefones na planilha:", alunos.map((a) => a.telefone));
+
   if (!aluno) {
     await sock.sendMessage(jid, {
       text: "❌ Não encontrei seu cadastro. Fale com o suporte.",
@@ -107,7 +171,6 @@ console.log("📊 Telefones na planilha:", alunos.map(a => a.telefone));
     return;
   }
 
-  // PRIMEIRA VEZ
   if (aluno.jaRespondeu !== "sim") {
     await sock.sendMessage(jid, {
       text:
@@ -122,78 +185,11 @@ console.log("📊 Telefones na planilha:", alunos.map(a => a.telefone));
     aluno.jaRespondeu = "sim";
     return;
   }
-//Verificar novos alunos
- async function monitorarConsultores() {
-  try {
 
-    if (!credentials) return;
-
-    const auth = new google.auth.GoogleAuth({
-      credentials,
-      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
-    });
-
-    const sheets = google.sheets({ version: "v4", auth });
-
-    // 👇 ALTERE PARA O NOME DA SUA ABA
-    const res = await sheets.spreadsheets.values.get({
-      spreadsheetId: process.env.SPREADSHEET_ID,
-      range: "Requerimentos_Matricula!A2:W",
-    });
-
-    const dados = res.data.values || [];
-
-    for (let index = 0; index < dados.length; index++) {
-
-      const linha = index + 2;
-
-      // já processado
-      if (linhasConsultores.has(linha)) continue;
-
-      linhasConsultores.add(linha);
-
-      // evita disparo inicial
-      if (primeiraLeituraConsultores) continue;
-
-      const row = dados[index];
-
-      const nomeAluno = row[2];
-      const telefoneAluno = row[5]?.replace(/\D/g, "");
-      const cursoAluno = row[13];
-
-      const nomeConsultor = row[21];
-      const whatsappConsultor = row[22]?.replace(/\D/g, "");
-
-      if (!whatsapp) continue;
-
-      const jid = whatsappConsultor + "@s.whatsapp.net";
-
+  // Segunda mensagem em diante
   await sock.sendMessage(jid, {
-  text:
-    `🎉 Olá, *${nomeConsultor}*!\n\n` +
-    `Um novo aluno acabou de se inscrever.\n\n` +
-    `👤 *Nome:* ${nomeAluno}\n` +
-    `📞 *Telefone:* ${telefoneAluno}\n` +
-    `📚 *Curso:* ${cursoAluno}\n\n` +
-    `✅ Verifique os detalhes no sistema e realize o contato o quanto antes.\n\n` +
-    `💪 Um atendimento rápido aumenta as chances de conversão.\n\n` +
-    `🚀 Excelente atendimento e boas matrículas!`,
-});
-
-      console.log("✅ Mensagem enviada para:", nomeConsultor);
-    }
-
-    primeiraLeituraConsultores = false;
-
-  } catch (e) {
-    console.log("❌ ERRO MONITORAMENTO:", e.message);
-  }
-}
-  // SEGUNDA VEZ PRA FRENTE
- await sock.sendMessage(jid, {
-  text:
-    `👨‍💼 Entre em contato com seu consultor:\n\n👤 ${aluno.consultorNome}\n📱 ${aluno.consultorNumero}`,
-});
+    text: `👨‍💼 Entre em contato com seu consultor:\n\n👤 ${aluno.consultorNome}\n📱 ${aluno.consultorNumero}`,
+  });
 }
 
 // ───────────── WHATSAPP ─────────────
@@ -208,20 +204,17 @@ async function conectar() {
     printQRInTerminal: false,
   });
 
-  
-
   sock.ev.on("creds.update", saveCreds);
 
-  // Mapeia @lid para número real conforme contatos chegam
-sock.ev.on("contacts.upsert", (contacts) => {
-  for (const contact of contacts) {
-    if (contact.id && contact.lid) {
-      lidMap[contact.lid] = contact.id;
-      console.log("🗺️ Mapeado:", contact.lid, "→", contact.id);
+  sock.ev.on("contacts.upsert", (contacts) => {
+    for (const contact of contacts) {
+      if (contact.id && contact.lid) {
+        lidMap[contact.lid] = contact.id;
+        console.log("🗺️ Mapeado:", contact.lid, "→", contact.id);
+      }
     }
-  }
-  console.log("📇 Total mapeados no lidMap:", Object.keys(lidMap).length);
-});
+    console.log("📇 Total mapeados no lidMap:", Object.keys(lidMap).length);
+  });
 
   sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
     if (qr) {
@@ -244,32 +237,31 @@ sock.ev.on("contacts.upsert", (contacts) => {
     }
   });
 
-sock.ev.on("messages.upsert", async ({ messages }) => {
-  for (const msg of messages) {
-    if (!msg.message) continue;
-    if (msg.key.fromMe) continue;
+  sock.ev.on("messages.upsert", async ({ messages }) => {
+    for (const msg of messages) {
+      if (!msg.message) continue;
+      if (msg.key.fromMe) continue;
 
-    // 👇 pega o número real direto do senderPn
-    const senderPn = msg.key.senderPn;
-    if (!senderPn) {
-      console.log("🚫 Sem senderPn:", msg.key.remoteJid);
-      continue;
+      const senderPn = msg.key.senderPn;
+      if (!senderPn) {
+        console.log("🚫 Sem senderPn:", msg.key.remoteJid);
+        continue;
+      }
+
+      const numero = senderPn.split("@")[0];
+
+      const texto =
+        msg.message.conversation ||
+        msg.message.extendedTextMessage?.text;
+
+      if (!texto) continue;
+
+      console.log("📩 Número REAL:", numero);
+      console.log("💬 Texto:", texto);
+
+      await responderAluno(msg.key.remoteJid, numero);
     }
-
-    const numero = senderPn.split("@")[0];
-
-    const texto =
-      msg.message.conversation ||
-      msg.message.extendedTextMessage?.text;
-
-    if (!texto) continue;
-
-    console.log("📩 Número REAL:", numero);
-    console.log("💬 Texto:", texto);
-
-    await responderAluno(msg.key.remoteJid, numero);
-  }
-});
+  });
 }
 
 // ───────────── ROTAS ─────────────
@@ -277,16 +269,13 @@ app.get("/qr", async (req, res) => {
   if (!qrAtual || sock?.user) {
     return res.send("Já conectado ou aguardando QR...");
   }
-
   const qrImage = await QRCode.toDataURL(qrAtual);
   res.send(`<img src="${qrImage}" width="300"/>`);
 });
 
 app.get("/logout", async (req, res) => {
   try {
-    if (!sock) {
-      return res.status(200).send("❌ Socket não iniciado");
-    }
+    if (!sock) return res.status(200).send("❌ Socket não iniciado");
 
     try {
       await sock.logout();
@@ -294,18 +283,13 @@ app.get("/logout", async (req, res) => {
       console.log("⚠️ Logout falhou, continuando...");
     }
 
-    const fs = require("fs");
     fs.rmSync("./auth-resposta", { recursive: true, force: true });
-
     sock = null;
 
-    // 👇 ADICIONE ISSO AQUI (ESSENCIAL)
     setTimeout(() => conectar(), 1000);
-
     res.status(200).send("✅ Sessão limpa, novo QR será gerado");
   } catch (err) {
     console.log("❌ ERRO GERAL:", err);
-
     res.status(200).send("⚠️ Erro tratado, sessão resetada");
   }
 });
@@ -318,7 +302,7 @@ conectar();
 
 setTimeout(() => {
   carregarAlunos();
+  monitorarConsultores();
 }, 5000);
 
-// Atualiza a planilha a cada 5 minutos
-setInterval(carregarAlunos, 5 * 60 * 1000);
+setInterval(monitorarConsultores, 60 * 1000);
