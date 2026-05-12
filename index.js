@@ -1,6 +1,5 @@
 require("dotenv").config();
 
-// 🔐 PROTEÇÃO GLOBAL
 let credentials = null;
 try {
   credentials = JSON.parse(process.env.GOOGLE_CREDENTIALS);
@@ -39,19 +38,15 @@ async function carregarAlunos() {
       console.log("⛔ Sem credenciais, pulando carga de alunos");
       return;
     }
-
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
-
     const sheets = google.sheets({ version: "v4", auth });
-
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
       range: "resposta automatica!A2:E",
     });
-
     alunos = (res.data.values || []).map((row, index) => ({
       linha: index + 2,
       telefone: row[0]?.replace(/\D/g, ""),
@@ -60,7 +55,6 @@ async function carregarAlunos() {
       consultorNome: row[3],
       jaRespondeu: (row[4] || "").toLowerCase(),
     }));
-
     console.log("✅ Alunos carregados:", alunos.length);
   } catch (e) {
     console.log("❌ ERRO AO CARREGAR ALUNOS:", e.message);
@@ -71,21 +65,17 @@ async function carregarAlunos() {
 async function marcarComoRespondido(linha) {
   try {
     if (!credentials) return;
-
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
-
     const sheets = google.sheets({ version: "v4", auth });
-
     await sheets.spreadsheets.values.update({
       spreadsheetId: process.env.SPREADSHEET_ID,
       range: `resposta automatica!E${linha}`,
       valueInputOption: "RAW",
       requestBody: { values: [["SIM"]] },
     });
-
     console.log("✅ Atualizado linha", linha);
   } catch (e) {
     console.log("❌ ERRO AO ATUALIZAR:", e.message);
@@ -93,7 +83,6 @@ async function marcarComoRespondido(linha) {
 }
 
 // ───────────── MONITORAR CONSULTORES ─────────────
-// ✅ CORRIGIDO: movida para o escopo global (estava dentro de responderAluno)
 async function monitorarConsultores() {
   try {
     if (!credentials) return;
@@ -101,31 +90,24 @@ async function monitorarConsultores() {
       console.log("⚠️ Socket ainda não pronto, pulando monitoramento");
       return;
     }
-
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
-
     const sheets = google.sheets({ version: "v4", auth });
-
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
       range: "Requerimentos_Matricula!A2:W",
     });
-
     const dados = res.data.values || [];
 
     for (let index = 0; index < dados.length; index++) {
       const linha = index + 2;
-
       if (linhasConsultores.has(linha)) continue;
       linhasConsultores.add(linha);
-
       if (primeiraLeituraConsultores) continue;
 
       const row = dados[index];
-
       const nomeAluno = row[2];
       const telefoneAluno = row[5]?.replace(/\D/g, "");
       const cursoAluno = row[13];
@@ -135,7 +117,6 @@ async function monitorarConsultores() {
       if (!whatsappConsultor) continue;
 
       const jid = whatsappConsultor + "@s.whatsapp.net";
-
       await sock.sendMessage(jid, {
         text:
           `🎉 Olá, *${nomeConsultor}*!\n\n` +
@@ -147,10 +128,8 @@ async function monitorarConsultores() {
           `💪 Um atendimento rápido aumenta as chances de conversão.\n\n` +
           `🚀 Excelente atendimento e boas matrículas!`,
       });
-
       console.log("✅ Mensagem enviada para:", nomeConsultor);
     }
-
     primeiraLeituraConsultores = false;
   } catch (e) {
     console.log("❌ ERRO MONITORAMENTO:", e.message);
@@ -160,7 +139,6 @@ async function monitorarConsultores() {
 // ───────────── RESPOSTA AO ALUNO ─────────────
 async function responderAluno(jid, numero) {
   const aluno = alunos.find((a) => a.telefone === numero);
-
   console.log("🔎 Numero recebido:", numero);
   console.log("📊 Telefones na planilha:", alunos.map((a) => a.telefone));
 
@@ -180,13 +158,11 @@ async function responderAluno(jid, numero) {
         `📱 ${aluno.consultorNumero}\n\n` +
         `👉 Entre em contato com ele para continuar seu atendimento.`,
     });
-
     await marcarComoRespondido(aluno.linha);
     aluno.jaRespondeu = "sim";
     return;
   }
 
-  // Segunda mensagem em diante
   await sock.sendMessage(jid, {
     text: `👨‍💼 Entre em contato com seu consultor:\n\n👤 ${aluno.consultorNome}\n📱 ${aluno.consultorNumero}`,
   });
@@ -213,7 +189,7 @@ async function conectar() {
         console.log("🗺️ Mapeado:", contact.lid, "→", contact.id);
       }
     }
-    console.log("📇 Total mapeados no lidMap:", Object.keys(lidMap).length);
+    console.log("📇 Total mapeados:", Object.keys(lidMap).length);
   });
 
   sock.ev.on("connection.update", async ({ connection, lastDisconnect, qr }) => {
@@ -221,18 +197,15 @@ async function conectar() {
       qrAtual = qr;
       console.log("📱 QR gerado!");
     }
-
     if (connection === "open") {
       qrAtual = null;
       console.log("✅ Conectado!");
     }
-
     if (connection === "close") {
       const shouldReconnect =
         lastDisconnect?.error instanceof Boom
           ? lastDisconnect.error.output?.statusCode !== DisconnectReason.loggedOut
           : true;
-
       if (shouldReconnect) conectar();
     }
   });
@@ -242,13 +215,22 @@ async function conectar() {
       if (!msg.message) continue;
       if (msg.key.fromMe) continue;
 
-      const senderPn = msg.key.senderPn;
-      if (!senderPn) {
-        console.log("🚫 Sem senderPn:", msg.key.remoteJid);
+      const remoteJid = msg.key.remoteJid;
+      let numero;
+
+      if (remoteJid.endsWith("@s.whatsapp.net")) {
+        numero = remoteJid.replace("@s.whatsapp.net", "");
+      } else if (remoteJid.endsWith("@g.us")) {
+        numero = (msg.key.participant || "").replace("@s.whatsapp.net", "");
+      } else {
+        console.log("🚫 JID desconhecido:", remoteJid);
         continue;
       }
 
-      const numero = senderPn.split("@")[0];
+      if (!numero) {
+        console.log("🚫 Não foi possível extrair número de:", remoteJid);
+        continue;
+      }
 
       const texto =
         msg.message.conversation ||
@@ -259,10 +241,10 @@ async function conectar() {
       console.log("📩 Número REAL:", numero);
       console.log("💬 Texto:", texto);
 
-      await responderAluno(msg.key.remoteJid, numero);
+      await responderAluno(remoteJid, numero);
     }
   });
-}
+} // ← ✅ fecha conectar() aqui
 
 // ───────────── ROTAS ─────────────
 app.get("/qr", async (req, res) => {
@@ -276,16 +258,13 @@ app.get("/qr", async (req, res) => {
 app.get("/logout", async (req, res) => {
   try {
     if (!sock) return res.status(200).send("❌ Socket não iniciado");
-
     try {
       await sock.logout();
     } catch (e) {
       console.log("⚠️ Logout falhou, continuando...");
     }
-
     fs.rmSync("./auth-resposta", { recursive: true, force: true });
     sock = null;
-
     setTimeout(() => conectar(), 1000);
     res.status(200).send("✅ Sessão limpa, novo QR será gerado");
   } catch (err) {
