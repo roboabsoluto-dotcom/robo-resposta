@@ -90,33 +90,39 @@ async function monitorarConsultores() {
       console.log("⚠️ Socket ainda não pronto, pulando monitoramento");
       return;
     }
+
     const auth = new google.auth.GoogleAuth({
       credentials,
       scopes: ["https://www.googleapis.com/auth/spreadsheets"],
     });
     const sheets = google.sheets({ version: "v4", auth });
+
+    // Lê até coluna AI
     const res = await sheets.spreadsheets.values.get({
       spreadsheetId: process.env.SPREADSHEET_ID,
-      range: "Requerimentos_Matricula!A2:W",
+      range: "Requerimentos_Matricula!A2:AI",
     });
+
     const dados = res.data.values || [];
 
     for (let index = 0; index < dados.length; index++) {
-      const linha = index + 2;
-      if (linhasConsultores.has(linha)) continue;
-      linhasConsultores.add(linha);
-      if (primeiraLeituraConsultores) continue;
-
       const row = dados[index];
+      const linha = index + 2;
+
+      // Coluna AI (índice 34) deve ter "Novo"
+      const status = (row[34] || "").toString().trim().toLowerCase();
+      if (status !== "novo") continue;
+
       const nomeAluno = row[2];
       const telefoneAluno = row[5]?.replace(/\D/g, "");
       const cursoAluno = row[13];
       const nomeConsultor = row[21];
       const whatsappConsultor = row[22]?.replace(/\D/g, "");
 
-      if (!whatsappConsultor) continue;
+      if (!whatsappConsultor || !nomeConsultor) continue;
 
       const jid = whatsappConsultor + "@s.whatsapp.net";
+
       await sock.sendMessage(jid, {
         text:
           `🎉 Olá, *${nomeConsultor}*!\n\n` +
@@ -128,9 +134,18 @@ async function monitorarConsultores() {
           `💪 Um atendimento rápido aumenta as chances de conversão.\n\n` +
           `🚀 Excelente atendimento e boas matrículas!`,
       });
-      console.log("✅ Mensagem enviada para:", nomeConsultor);
+
+      console.log(`✅ Mensagem enviada para: ${nomeConsultor} (linha ${linha})`);
+
+      // Marca como ENVIADO na coluna AI para não reprocessar
+      await sheets.spreadsheets.values.update({
+        spreadsheetId: process.env.SPREADSHEET_ID,
+        range: `Requerimentos_Matricula!AI${linha}`,
+        valueInputOption: "RAW",
+        requestBody: { values: [["ENVIADO"]] },
+      });
     }
-    primeiraLeituraConsultores = false;
+
   } catch (e) {
     console.log("❌ ERRO MONITORAMENTO:", e.message);
   }
@@ -164,7 +179,7 @@ async function responderAluno(jid, numero) {
   }
 
   await sock.sendMessage(jid, {
-    text: `👨‍💼 Entre em contato com seu consultor:\n\n👤 ${aluno.consultorNome}\n📱 ${aluno.consultorNumero}`,
+    text: `👨‍💼 Olá, eu sou um robô, para duvidas, entre em contato com seu consultor:\n\n👤 ${aluno.consultorNome}\n📱 ${aluno.consultorNumero}`,
   });
 }
 
