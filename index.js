@@ -28,6 +28,8 @@ const app = express();
 let sock = null;
 let qrAtual = null;
 let alunos = [];
+let linhasConsultores = new Set();
+let primeiraLeituraConsultores = true;
 const lidMap = {}; // 👈 adicionar esta linha
 
 
@@ -120,7 +122,73 @@ console.log("📊 Telefones na planilha:", alunos.map(a => a.telefone));
     aluno.jaRespondeu = "sim";
     return;
   }
+//Verificar novos alunos
+ async function monitorarConsultores() {
+  try {
 
+    if (!credentials) return;
+
+    const auth = new google.auth.GoogleAuth({
+      credentials,
+      scopes: ["https://www.googleapis.com/auth/spreadsheets"],
+    });
+
+    const sheets = google.sheets({ version: "v4", auth });
+
+    // 👇 ALTERE PARA O NOME DA SUA ABA
+    const res = await sheets.spreadsheets.values.get({
+      spreadsheetId: process.env.SPREADSHEET_ID,
+      range: "Requerimentos_Matricula!A2:W",
+    });
+
+    const dados = res.data.values || [];
+
+    for (let index = 0; index < dados.length; index++) {
+
+      const linha = index + 2;
+
+      // já processado
+      if (linhasConsultores.has(linha)) continue;
+
+      linhasConsultores.add(linha);
+
+      // evita disparo inicial
+      if (primeiraLeituraConsultores) continue;
+
+      const row = dados[index];
+
+      const nomeAluno = row[2];
+      const telefoneAluno = row[5]?.replace(/\D/g, "");
+      const cursoAluno = row[13];
+
+      const nomeConsultor = row[21];
+      const whatsappConsultor = row[22]?.replace(/\D/g, "");
+
+      if (!whatsapp) continue;
+
+      const jid = whatsappConsultor + "@s.whatsapp.net";
+
+  await sock.sendMessage(jid, {
+  text:
+    `🎉 Olá, *${nomeConsultor}*!\n\n` +
+    `Um novo aluno acabou de se inscrever.\n\n` +
+    `👤 *Nome:* ${nomeAluno}\n` +
+    `📞 *Telefone:* ${telefoneAluno}\n` +
+    `📚 *Curso:* ${cursoAluno}\n\n` +
+    `✅ Verifique os detalhes no sistema e realize o contato o quanto antes.\n\n` +
+    `💪 Um atendimento rápido aumenta as chances de conversão.\n\n` +
+    `🚀 Excelente atendimento e boas matrículas!`,
+});
+
+      console.log("✅ Mensagem enviada para:", nomeConsultor);
+    }
+
+    primeiraLeituraConsultores = false;
+
+  } catch (e) {
+    console.log("❌ ERRO MONITORAMENTO:", e.message);
+  }
+}
   // SEGUNDA VEZ PRA FRENTE
  await sock.sendMessage(jid, {
   text:
